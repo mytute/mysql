@@ -77,7 +77,7 @@ mysql> FLUSH PRIVILEGES;
 
 # allow mysql to connect from any host   
 $ sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
-
+bind-address            = 0.0.0.0 # add following line 
 
 # connect remore mysql server from your terminal  
 $ mysql -h 188.166.227.124 -u your_username -p
