@@ -210,11 +210,17 @@ $ sudo nano /etc/apparmor.d/usr.sbin.mysqld
 /var/log/mysql_slow.log rw, # add this line
 $ sudo systemctl reload apparmor
 
-if you want to log as mysql user
+# if you want to log as mysql user
 $ sudo usermod -s /bin/bash mysql
 $ sudo su - mysql  
 $ exit # for exit from mysql user to previous user   
 ```
+
+## Monitoring & Logging 
+
+## High Availability & Scaling  
+Replication allows a copy of data from the master database to be automatically replicated to one or more slave databases. This improves availability, disaster recovery, and read performance.
+
 
 
 
