@@ -221,6 +221,125 @@ $ exit # for exit from mysql user to previous user
 ## High Availability & Scaling  
 Replication allows a copy of data from the master database to be automatically replicated to one or more slave databases. This improves availability, disaster recovery, and read performance.
 
+We will configure the Master VPS and Slave VPS for replication.  
+* Master VPS: master_ip  
+* Slave VPS: slave_ip  
+* MySQL Version: Both VPS servers must have the same version installed.
+
+### 1. Master VPS Configuration  
+configuration to enable binary logging and set a unique server ID  
+> /etc/mysql/mysql.conf.d/mysqld.cnf
+```bash
+# add/modify the following lines under [mysqld] 
+log_bin = /var/log/mysql/mysql-bin.log  # Enable binary logging
+server-id = 1                           # Unique server ID for the Master
+```
+save and restart mysql server  
+```bash
+$ sudo systemctl restart mysql   
+```
+create a replication user   
+```bash
+# login as root user
+$ mysql -u root -p
+
+# this user for slave to connect master. there for we need to create this user on master mysql (vps)    
+mysql> CREATE USER 'replica_user'@'slave_ip' IDENTIFIED BY 'replica_password';
+# add replication slave privileges to above user  
+mysql> GRANT REPLICATION SLAVE ON *.* TO 'replica_user'@'slave_ip'; 
+mysql> FLUSH PRIVILEGES;
+```
+retrieve the current binary log file and position.   
+```bash
+mysql> SHOW MASTER STATUS; # you need to notedown 'File' and 'Position' to enter on slave vps  
+# result :
++------------------+----------+
+| File             | Position |
++------------------+----------+
+| mysql-bin.000001 | 154      |
++------------------+----------+
+```
+
+### 1. Slave VPS Configuration  
+
+> sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+```bash
+server-id = 2                                  # Unique server ID for the Slave
+relay-log = /var/log/mysql/mysql-relay-bin.log # Relay log file path
+# # Relay log file path will store logs received from the Master
+```
+save and restart MYSQL server   
+```bash
+$ sudo systemctl restart mysql
+```
+connect from Slave to Master   
+```bash
+mysql> CHANGE MASTER TO MASTER_HOST='master_ip', MASTER_USER='replica_user', MASTER_PASSWORD='replica_password', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=157;
+# master_ip: IP address of the Master VPS.
+# replica_user: Replication user created on the Master (created on master vps for salve loggin).
+# replica_password: Password for the replication user(created on master vps for salve loggin).
+# MASTER_LOG_FILE and MASTER_LOG_POS: Use the values from "mysql> SHOW MASTER STATUS" on the Master.
+```
+
+start slave and check status of connection slave-master 
+```bash
+# start slave   
+mysql> START SLAVE;
+
+# verify connection
+mysql> SHOW SLAVE STATUS\G;
+# result should be
+# Slave_IO_Running: Yes
+# Slave_SQL_Running: Yes
+```
+
+if you want to reset Master data in Slave VPS( "CHANGE MASTER TO ... etc" command )
+```bash
+mysql> STOP SLAVE; # first need to stop slave 
+# reset the Slave's replication settings to clear the previously entered CHANGE MASTER TO data.
+mysql> RESET SLAVE ALL;
+# re-enter master-slave connection query
+mysql> CHANGE MASTER TO MASTER_HOST='master_ip', MASTER_USER='replica_user', MASTER_PASSWORD='replica_password', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=157;
+mysql> START SLAVE;
+```
+### Verify the Replication   
+create a test database and table on Master vps :   
+```bash
+CREATE DATABASE test_db;
+USE test_db;
+CREATE TABLE test_table (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50));
+INSERT INTO test_table (name) VALUES ('Replication Test');
+```
+check on Slave vps : 
+```bash
+SHOW DATABASES;
+USE test_db;
+SELECT * FROM test_table;
+```
+
+depend on your senerio you can add firewall configuraiton (optional)   
+```bash
+# On Master VPS
+$ sudo ufw allow from slave_ip to any port 3306  
+# On Slave VPS
+$ sudo ufw allow from master_ip to any port 3306  
+```
+This replication works when slave gone offline and master update while slave offline will sync after slave came online.  
+
+## Scaling and Load Balancing with ProxySQL    
+
+Why Use ProxySQL?  
+1. Load Balancing: Distributes read-heavy workloads across multiple replicas (Slaves).  
+2. Write Routing: Ensures that write operations go to the Master database.  
+3. Failover Handling: Redirects traffic to healthy replicas automatically in case of failure.  
+4. Improved Scalability: Allows applications to scale by offloading reads from the Master to the Slaves.
+
+install ProxySQL   
+```bash
+$ sudo apt update   
+$ sudo apt install proxysql  # need to install on seperate vps or where you application run on.  
+```
+
 
 
 
