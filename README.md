@@ -68,6 +68,17 @@ mysql> REVOKE INSERT, UPDATE ON school.students FROM 'samadhi'@'localhost';
 # After revoking privileges, you may need to run FLUSH PRIVILEGES to ensure the changes take effect immediately
 mysql> FLUSH PRIVILEGES;
 ```
+user change password    
+```bash
+# show all users that have created on mysql
+mysql> select user from mysql.user;
+
+# find the above selected user with host.  
+mysql> SELECT User, Host FROM mysql.user WHERE User = 'slave_rep';
+
+# change user password with host.  
+mysql> ALTER USER 'slave_rep'@'12.122.1222.22' IDENTIFIED BY 'new_password';
+```
 
 allow remote access on VPS database   
 ```bash
@@ -337,7 +348,37 @@ Why Use ProxySQL?
 install ProxySQL   
 ```bash
 $ sudo apt update   
-$ sudo apt install proxysql  # need to install on seperate vps or where you application run on.  
+$ sudo apt install proxysql  # need to install on seperate vps or where you application run on.
+
+# ! if this didn't work
+# download deb package from website (https://proxysql.com/documentation/installing-proxysql/) according to your system architecture (ARM64/AMD64)
+# Use the dpkg command to install the .deb file
+$ sudo dpkg -i proxysql_2.7.2-ubuntu24_amd64.deb
+
+# Resolve Dependencies (if needed)
+$ sudo apt-get install -f
+
+$ sudo systemctl status proxysql
+$ sudo systemctl start proxysql
+# to ensure ProxySQL starts automatically on system boot, enable it  
+$ sudo systemctl enable proxysql
+
+# you can access the ProxySQL admin interface using the MySQL client
+# $ mysql -u admin -padmin -h 127.0.0.1 -P 6032 --prompt='ProxySQL> '
+$ mysql -u admin -p -h 127.0.0.1 -P 6032  # Default password: admin 
+
+mysql> INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight) VALUES
+(1, 'master_ip', 3306, 1),  -- Hostgroup 1 for Master
+(2, 'slave_ip', 3306, 1);   -- Hostgroup 2 for Slave
+
+mysql> INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup, apply) VALUES
+(1, '^SELECT.*', 2, 1), -- Route SELECT queries to Slave
+(2, '^(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP).*', 1, 1); -- Route writes to Master
+
+INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup, apply) VALUES
+(1, '^SELECT.*', 2, 1),
+(2, '^(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP).*', 1, 1); 
+  
 ```
 
 
