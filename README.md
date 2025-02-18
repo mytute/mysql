@@ -345,6 +345,23 @@ Why Use ProxySQL?
 3. Failover Handling: Redirects traffic to healthy replicas automatically in case of failure.  
 4. Improved Scalability: Allows applications to scale by offloading reads from the Master to the Slaves.
 
+The 3 layers of configuration consist of   
+1. Runtime
+2. Memory
+3. Dish & Configuration File
+
+so need to run following command for Admin changes   
+```bash
+mysql(ProxySQL) > LOAD ADMIN VARIABLES TO RUNTIME;
+mysql(ProxySQL) > SAVE ADMIN VARIABLES TO DISK; 
+```
+so need to run following command for non-Admin changes       
+```bash
+mysql(ProxySQL) > LOAD MYSQL SERVERS TO RUNTIME;
+mysql(ProxySQL) > SAVE MYSQL SERVERS TO DISK; 
+```
+
+
 install ProxySQL   
 ```bash
 $ sudo apt update   
@@ -365,20 +382,90 @@ $ sudo systemctl enable proxysql
 
 # you can access the ProxySQL admin interface using the MySQL client
 # $ mysql -u admin -padmin -h 127.0.0.1 -P 6032 --prompt='ProxySQL> '
-$ mysql -u admin -p -h 127.0.0.1 -P 6032  # Default password: admin 
+# Default password: admin
+# Admin port : 6032  
+$ mysql -u admin -p -h 127.0.0.1 -P 6032  
 
-mysql> INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight) VALUES
+# after login ProxySQL create proxy_user for login to ProxySQL instead to admin.
+# this user we use to connect with backend-application (instaed of default mysql we login to ProxySQL server)
+mysql(ProxySQL)> INSERT INTO mysql_users(username, password, default_hostgroup, active) VALUES ('proxy_user', 'proxy_password', 1, 1); -- App connects to ProxySQL
+mysql(ProxySQL)> LOAD MYSQL SERVERS TO RUNTIME;
+mysql(ProxySQL)> SAVE MYSQL SERVERS TO DISK;
+
+# exit ProxySQL and login to each mysql servers to create user with following privileges. (eg: master and slave)
+# !important ## ProxySQL and MySQL should have same user with same password   
+mysql> CREATE USER 'proxy_user'@'%' IDENTIFIED BY 'proxy_password';   
+mysql> GRANT ALL PRIVILEGES ON *.* TO 'proxy_user'@'%';  # you can limit privilege access for user. 
+mysql> FLUSH PRIVILEGES;
+
+# inside the ProxySQL admin interface, define Master and Slave or MySQL instances:
+mysql(ProxySQL)> INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight) VALUES
 (1, 'master_ip', 3306, 1),  -- Hostgroup 1 for Master
 (2, 'slave_ip', 3306, 1);   -- Hostgroup 2 for Slave
+mysql(ProxySQL)> LOAD MYSQL SERVERS TO RUNTIME;
+mysql(ProxySQL)> SAVE MYSQL SERVERS TO DISK;
 
-mysql> INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup, apply) VALUES
-(1, '^SELECT.*', 2, 1), -- Route SELECT queries to Slave
-(2, '^(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP).*', 1, 1); -- Route writes to Master
+# set rules to route write queries to Master and read queries to Slave:
+# Set up query rules to direct write queries to the master (hostgroup_id = 1) and read queries to the slave (hostgroup_id = 2).
+mysql(ProxySQL)> INSERT INTO mysql_query_rules (rule_id, active, match_digest, destination_hostgroup, apply) VALUES 
+(1, 1, '^SELECT', 2, 1),  -- Route SELECT queries to slave (read)
+(2, 1, '^INSERT', 1, 1),  -- Route INSERT queries to master (write)
+(3, 1, '^UPDATE', 1, 1),  -- Route UPDATE queries to master (write)
+(4, 1, '^DELETE', 1, 1);  -- Route DELETE queries to master (write)
+# check rules added from above commands  
+mysql(ProxySQL)> select rule_id, match_digest, destination_hostgroup from mysql_query_rules;
 
-INSERT INTO mysql_query_rules(rule_id, match_pattern, destination_hostgroup, apply) VALUES
-(1, '^SELECT.*', 2, 1),
-(2, '^(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP).*', 1, 1); 
-  
+# monitor and verify
+$ SELECT * FROM stats_mysql_connection_pool;
+
+# login to ProxySQL user
+# importan for normal user port should be "6033"
+$ mysql -u proxy -p -h 127.0.0.1 -P 6033
+
+# make query for test with database name
+mysql(ProxySQL)> SELECT * FROM replica_db.test_table;
+# you can test proxy sql count under it's methods using following cmd   
+mysql(ProxySQL)> SELECT * FROM stats_mysql_commands_counters;
+
+# confirm by log on Master and Slave 
+mysql(Master/Slave) > show variables like '%general_log%'; 
+mysql(Master/Slave) > SET GLOBAL general_log = 'ON'; # do this first
+$ sudo touch /var/lib/mysql/devmius.log # do this second   
+$ tail -f /path/to/master_general_log.log # /var/lib/mysql/devmius.log
+```
+
+monitoring.   
+```bash
+# create commaon user in Master and Slave for monitor each mysql instance helth.   
+mysql(Master/Slave) > CREATE USER 'monitor'@'%' IDENTIFIED BY 'monitor_password';
+mysql(Master/Slave) > GRANT USAGE, REPLICATION CLIENT ON *.* TO 'monitor'@'%';
+mysql(Master/Slave) > FLUSH PRIVILEGES;
+
+mysql(ProxySQL)> mysql -u admin -p -h 127.0.0.1 -P 6032
+mysql(ProxySQL)> show variables like '%mysql-monitor_%';
+mysql(ProxySQL)> UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username'; # add username
+mysql(ProxySQL)> UPDATE global_variables SET variable_value='monitor_password' WHERE variable_name='mysql-monitor_password'; # add password for username
+mysql(ProxySQL)> LOAD MYSQL VARIABLES TO RUNTIME;
+mysql(ProxySQL)> SAVE MYSQL VARIABLES TO DISK;
+
+# using following 2 queries on proxySQL (admin) we can see status of each periodical test conection of replications
+mysql(ProxySQL)> SELECT * FROM monitor.mysql_server_connect_log ORDER BY time_start_us DESC LIMIT 10;
+mysql(ProxySQL)> SELECT * FROM monitor.mysql_server_ping_log ORDER BY time_start_us DESC LIMIT 10; 
+```
+
+debug   
+```bash
+# Verify servers:
+mysql(ProxySQL)> SELECT * FROM mysql_servers;
+# Verify query rules:
+mysql(ProxySQL)> SELECT * FROM mysql_query_rules;
+# Verify users:
+mysql(ProxySQL)> SELECT * FROM mysql_users;
+
+# delete specific servers 
+mysql(ProxySQL)> DELETE FROM mysql_servers WHERE hostname = 'master_ip' AND port = 3306;
+# delete specific user 
+mysql(ProxySQL)> DELETE FROM mysql_users WHERE username = 'proxy_user' AND default_hostgroup = 1; -- Remove for Master
 ```
 
 
