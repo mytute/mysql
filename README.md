@@ -468,6 +468,62 @@ mysql(ProxySQL)> DELETE FROM mysql_servers WHERE hostname = 'master_ip' AND port
 mysql(ProxySQL)> DELETE FROM mysql_users WHERE username = 'proxy_user' AND default_hostgroup = 1; -- Remove for Master
 ```
 
+## Enable Automated Backups   
+Automated backups are essential to protect data from unexpected failures like hardware crashes, software issues, or accidental deletions.  
+
+command to create a full backup:   
+```bash
+$ mysqldump -u root -p --all-databases > backup.sql # add database
+$ mysqldump -u root -p --databases my_database > my_database_backup.sql # only one database  
+# -u root: Specifies the MySQL username.
+# -p: Prompts for the password.
+# --all-databases: Backs up all the databases in the server.
+# > backup.sql: Redirects the output to a file named backup.sql.
+```
+
+schedule backups using cron    
+```bash
+# to check "cron" installed or not
+$ crontab -l
+# to create cronjob for current user that logged into system.       
+@ crontab -e
+# to create cronjob for system.
+vi /etc/crontab
+# format of cronjob as root need to add user  
+# * * * * * yourusername echo "Cron job ran at $(date)" >> /home/yourusername/cron_test.log
+# generate mysqldump for every minuts   
+* * * * *  samadhi /usr/bin/mysqldump -u root -p'a#fgr@8Dev'  replica_db > /home/samadhi/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql
+# minuts | hour | day | month | day-of-week 
+# 30 3 * * * command_to_run : daily at 3:30 AM
+# 0 17 * * 1 command_to_run : weekly monday 5:00 PM
+# 0 * * * * command_to_run  : run every hour
+# */10 * * * * command_to_run : run every 10 minutes
+# 45 23 * * 0 command_to_run : run every sunday at 11:45 PM
+# 15 8 * * 1-5 command_to_run : run on weekdays (Monday to Friday) at 8:15 AM
+```
+
+use MySQL binary logs for point-in-time recovery   
+usally backup happen on mighnight and if we need to restore data backup time to crash time then we need to use "Binary Logs"   
+
+
+
+debug   
+```bash
+# check status of crontab    
+$ sudo systemctl status cron
+
+# check logs
+$ sudo tail -f /var/log/syslog | grep CRON
+
+# activate cron log
+$ sudo vi  /etc/rsyslog.d/50-default.conf
+# uncomment following line
+cron.*    /var/log/cron.log
+# restart rsyslog service 
+$ sudo systemctl restart rsyslog
+# check logs
+$ sudo tail -f /var/log/cron.log  
+```
 
 
 
