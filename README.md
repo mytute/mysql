@@ -505,7 +505,23 @@ vi /etc/crontab
 use MySQL binary logs for point-in-time recovery   
 usally backup happen on mighnight and if we need to restore data backup time to crash time then we need to use "Binary Logs"   
 
+activate binary log (already done above)
+```bash
+$ sudo vi /etc/mysql/mysql.conf.d/mysqld.cnf
+[mysqld]
+log_bin = /var/log/mysql/mysql-bin.log
+binlog_expire_logs_seconds = 2592000 #  equal 0 mean logs do not expire automatically and by default 2592000 = 30 days
+```
 
+how to backup with binary logs 
+```bash
+# take full backup at midnight
+$ mysqldump -u root -p --databases my_database > my_database_backup.sql
+# restore the midnight backup:
+$ mysql -u root -p < my_database_backup.sql
+# Replay the binary logs to recover changes up to 9:59 AM:
+$ mysqlbinlog --start-datetime="2025-02-15 00:00:00" --stop-datetime="2025-02-15 09:59:00" /var/log/mysql/mysql-bin.log | mysql -u root -p  
+```
 
 debug   
 ```bash
