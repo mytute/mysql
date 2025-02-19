@@ -491,6 +491,8 @@ $ crontab -l
 vi /etc/crontab
 # format of cronjob as root need to add user  
 # * * * * * yourusername echo "Cron job ran at $(date)" >> /home/yourusername/cron_test.log
+# without cron you can test it on terminal   
+$ /usr/bin/mysqldump -u root -pa#fgr@8Dev replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql 
 # generate mysqldump for every minuts   
 * * * * *  samadhi /usr/bin/mysqldump -u root -p'a#fgr@8Dev'  replica_db > /home/samadhi/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql
 # minuts | hour | day | month | day-of-week 
@@ -511,6 +513,8 @@ $ sudo vi /etc/mysql/mysql.conf.d/mysqld.cnf
 [mysqld]
 log_bin = /var/log/mysql/mysql-bin.log
 binlog_expire_logs_seconds = 2592000 #  equal 0 mean logs do not expire automatically and by default 2592000 = 30 days
+
+$ sudo systemctl restart mysql # restart mysql server
 ```
 
 how to backup with binary logs 
@@ -521,6 +525,47 @@ $ mysqldump -u root -p --databases my_database > my_database_backup.sql
 $ mysql -u root -p < my_database_backup.sql
 # Replay the binary logs to recover changes up to 9:59 AM:
 $ mysqlbinlog --start-datetime="2025-02-15 00:00:00" --stop-datetime="2025-02-15 09:59:00" /var/log/mysql/mysql-bin.log | mysql -u root -p  
+```
+
+let see how to hide mysql credentials in the cronjob     
+method 001: Script with Restricted Permissions     
+```bash
+$ vi ~/.my.cnf
+# add following lines to file   
+[client]
+user = root
+password = 'a#fgr' # password good to inside quotations 
+# add permissions to above file
+$ chmod 600 ~/.my.cnf
+# try without cron
+$ /usr/bin/mysqldump --defaults-extra-file=~/.my.cnf  replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql  
+```
+
+method 002: Use Environment Variables    
+```bash
+# open following line   
+vi  ~/.bashrc
+# insert following env variable
+export MYSQL_PWD='a#fgr'
+# activate env variable
+$ source ~/.bashrc
+# test command without cron   
+$ /usr/bin/mysqldump -u root -p$MYSQL_PWD replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql 
+```
+method 003: Script with Restricted Permissions  
+```bash
+# create file for script
+vi ~/scripts/backup_db.sh
+
+# write the script for crone
+#!/bin/bash
+/usr/bin/mysqldump -u root -p'a#fgr' replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql 
+
+# set permissions to ensure only the owner can read and execute the script
+$ chmod 700 ~/scripts/backup_db.sh
+
+# run script on cron add following line to crontab file  
+*/2 * * * * ~/scripts/backup_db.sh
 ```
 
 debug   
