@@ -1,590 +1,114 @@
-# MySql for production server   
+# MySQL monitoring using Prometheus and Grafana and MySQL-Exporter  
 
-## Step 1 — Installing MySQL  
+for scalable system need monitoring for any anomalies or any issues in production environment.   
 
-```bash
-$ sudo apt update
-$ sudo apt install mysql-server # install mysql server package 
+for this you need to install "docker" and "docker-compose" into your vps   
 
-# start mysql server
-$ sudo systemctl start mysql # ubuntu, "mysql.service" also works 
-$ sudo systemctl start mysqld # fedora
-$ sudo systemctl status mysql # ubuntu
+MySQL           : port 3306:3306  > config : .my.cnf
+MySQL Exporter  : port 9104:9104
+Prometheus      : port 9090:9090  > config : prometheus.yml
+Grafana         : port 3000:3000  
+
+
+docker for linux(Ubuntu)   
+
+> /docker-compose.yml  
+```yml
+version: '3'
+services:
+
+  mysql:
+    image: mysql
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: 'test'              # Name of the database
+      MYSQL_USER: 'sample'                # Username
+      MYSQL_PASSWORD: 'password'          # Password for 'sample' user
+      MYSQL_ROOT_PASSWORD: 'password'     # Password for root user
+    ports:
+      - '3307:3306'                       # Map Docker MySQL port 3306 to host port 3307
+    volumes:
+      - ./mysql-db:/var/lib/mysql         # Persist MySQL data
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml"  # Mount prometheus.yml
+    ports:
+      - 9090:9090                         # Expose Prometheus on port 9090
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - 3000:3000                         # Expose Grafana on port 3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana:/etc/grafana/provisioning/datasources # Persist Grafana configurations
+
+  mysql-exporter:
+    image: prom/mysqld-exporter
+    container_name: mysql-exporter
+    depends_on:
+      - mysql
+    command: 
+      - --config.my-cnf=/cfg/.my.cnf
+      - --mysqld.address=mysql:3306       # Connect to MySQL using its container name
+    volumes:
+      - "./.my.cnf:/cfg/.my.cnf"          # Mount .my.cnf for credentials
+    ports:
+      - 9104:9104                         # Expose MySQL exporter on port 9104
+
 ```
-
-## Step 2 — Configuring MySQL    
-by default mysql-server no root password set.   
-login mysql as root with sudo privilege.    
+> /prometheus.yml
 ```bash
-$ sudo mysql   
+global:
+  scrape_interval: 2s
+
+scrape_configs:
+ - job_name: prometheus
+   static_configs:
+    - targets:
+       - prometheus:9090                 # Prometheus container name as the target
+       
+ - job_name: mysql_exporter
+   static_configs:
+    - targets:
+       - mysql-exporter:9104            # MySQL exporter container name as the target
 ```
-set root password   
+> /.my.cnf
 ```bash
-mysql> ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'put_your_password_here';
-```
-start make secure mysql   
-```bash
-$ mysql_secure_installation
-# Change the password for root ? y
-# Remove anonymous users ? y
-# Disallow root login remotely ? y
-# Remove test database and access to it ? y
-# Reload privilege tables now ? y  
-```
-now you can login using following command as root or any user.(sudo mysql not works now)  
-```bash
-$ mysql -u root -p
-```
-
-## Step 3 — Creating a Dedicated MySQL User and Granting Privileges   
-
-```bash
-# login to mysql as root
-$ mysql -u root -p
-
-# create user with password using 'caching_sha2_password' (MySQL’s default plugin for authenticate)   
-# mysql> CREATE USER 'username'@'host' IDENTIFIED WITH authentication_plugin BY 'password';
-mysql> CREATE USER 'sammy'@'localhost' IDENTIFIED BY 'password';
-
-# grant appropriate privileges for created user for a database table.  
-mysql> GRANT SELECT, INSERT ON database.table TO 'username'@'host';
-
-# grant SELECT, INSERT, and UPDATE privileges to a user for all tables in a specific database
-mysql>  GRANT SELECT, INSERT, UPDATE ON mydb.* TO 'username'@'host';
-
-# grant appropriate privileges for created user for all (database or table).   
-mysql> GRANT CREATE, ALTER, DROP, INSERT, UPDATE, INDEX, DELETE, SELECT, REFERENCES, RELOAD on *.* TO 'sammy'@'localhost' WITH GRANT OPTION;
-
-# grant priviledes for complete control over every database on the server.
-mysql> GRANT ALL PRIVILEGES ON *.* TO 'sammy'@'localhost' WITH GRANT OPTION;
-
-# see  privileges assigned to a specific user
-mysql> SHOW GRANTS FOR 'username'@'host';
-mysql> SHOW GRANTS; # you own privileges
-
-# remove privileges
-mysql> REVOKE INSERT, UPDATE ON school.students FROM 'samadhi'@'localhost';
-
-# After revoking privileges, you may need to run FLUSH PRIVILEGES to ensure the changes take effect immediately
-mysql> FLUSH PRIVILEGES;
-```
-user change password    
-```bash
-# show all users that have created on mysql
-mysql> select user from mysql.user;
-
-# find the above selected user with host.  
-mysql> SELECT User, Host FROM mysql.user WHERE User = 'slave_rep';
-
-# change user password with host.  
-mysql> ALTER USER 'slave_rep'@'12.122.1222.22' IDENTIFIED BY 'new_password';
-```
-
-allow remote access on VPS database   
-```bash
-
-mysql> UPDATE mysql.user SET host = '%' WHERE user = 'your_username';
-mysql> FLUSH PRIVILEGES;
-
-# allow mysql to connect from any host   
-$ sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
-bind-address            = 0.0.0.0 # add following line 
-
-# connect remore mysql server from your terminal  
-$ mysql -h 188.166.227.124 -u your_username -p
-```
-
-debug network connectivity  
-```bash
-# get program name that run on port number eg: 3306
-$ sudo lsof -i :3306
-#result:
-#COMMAND PID  USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
-#mysqld  965 mysql   25u  IPv4   8039      0t0  TCP localhost:mysql (LISTEN)
-
-# listen port number 80 using netcat (sudo apt install netcat)
-# when even port is open by ufw but not listening by anything it will give "Connection Refuse error"
-$ sudo nc -l -p 80 # make listen
-$ telnet 188.166.227.124 80 # check port 80
-
-$ sudo ss -tuln | grep 3306
-# result ------
-# LISTEN 0      70          0.0.0.0:3306        0.0.0.0:*
-# explain -----
-# LISTEN: Indicates that the socket is in a listening state.
-# 0.0.0.0:3306: The IP address (0.0.0.0) and port (3306) the socket is listening on. 0.0.0.0 means it is listening on all available interfaces (both IPv4 and IPv6).
-# 0.0.0.0:*: The remote address and port. * means it accepts connections from any remote address.
-```
-
-##  Optimize Performance  
-
-you can use "EXPLAIN" keyword before query for analyze queries.  
-```bash
-mysql> SELECT students.name, students.grade, subjects.subject_name FROM tudents JOIN subjects ON students.id = subjects.student_id;
-mysql> EXPLAIN SELECT students.name, students.grade, subjects.subject_name FROM tudents JOIN subjects ON students.id = subjects.student_id;
-# result
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+--------------------------------------------+
-| id | select_type | table    | partitions | type | possible_keys | key  | key_len | ref  | rows | filtered | Extra                                      |
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+--------------------------------------------+
-|  1 | SIMPLE      | students | NULL       | ALL  | PRIMARY       | NULL | NULL    | NULL |    2 |   100.00 | NULL                                       |
-|  1 | SIMPLE      | subjects | NULL       | ALL  | student_id    | NULL | NULL    | NULL |    3 |    50.00 | Using where; Using join buffer (hash join) |
-+----+-------------+----------+------------+------+---------------+------+---------+------+------+----------+--------------------------------------------+
-```
-
-Common Causes of Slow Queries  
-1. Missing Indexes: Queries that perform full table scans.  
-2. Large Data Sets: Filtering or sorting large datasets without optimizations.  
-3. Complex Joins: Joins on large tables with insufficient indexing.  
-4. Inefficient Queries: Using subqueries instead of joins, selecting more columns than needed, etc.  
-5. Lock Contention: Concurrent updates or inserts causing row or table locks.
-
-enable the Slow Query Log(should not use production because it shlow down mysql)   
-
-```bash
-mysql> show variables like '%slow%';
-
-+---------------------------+-----------------------------------+
-| Variable_name             | Value                             |
-+---------------------------+-----------------------------------+
-| log_slow_admin_statements | OFF                               |
-| log_slow_slave_statements | OFF                               |
-| slow_launch_time          | 2                                 |
-| slow_query_log            | OFF                               |
-| slow_query_log_file       | /var/lib/mysql/server-slow.log    |
-+---------------------------+-----------------------------------+
-
-mysql> show variables like '%long_query%';
-+-----------------+----------+
-| Variable_name   | Value    |
-+-----------------+----------+
-| long_query_time | 5.000000 |
-+-----------------+----------+
-
-# change the long query time to whatever you want. Queries taking more than this will be captured in the slow query log.
-mysql> SET GLOBAL long_query_time = 2.00;
-mysql> SET SESSION long_query_time = 1; # if above "GLOBAL" query didn't work use this cmd.   
-
-# witch on the slow query log.
-mysql> set global slow_query_log = 'ON';
-mysql> flush logs;
-
-# if you want to change 'slow_query_log_file' location you can do it inside '/var/log/mysql/filename.log'
-# if you want to put it another location then need to change apparmor showing inside debug section.  
-```
-
-restart MySQL   
-```bash
-$ sudo systemctl restart mysql
-```
-
-you can view slow queries using   
-```bash
-$ tail -f server-slow.log
-$ grep 'Time: 160411.*' server-slow.log | cut -c2-18 | uniq -c # find unique quires   
-```
-test show query log   
-```bash
-USE test; -- or any database
-
-CREATE TABLE test_slow_query (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  data VARCHAR(255)
-);
-
--- Insert a large number of rows to make the query slower
-INSERT INTO test_slow_query (data) 
-SELECT REPEAT('A', 255) FROM information_schema.tables LIMIT 100000;
-
--- Execute a query with inefficient operations to simulate slowness
-SELECT SLEEP(2), COUNT(*) FROM test_slow_query;   
-```
-test on log file    
-```bash
-$ sudo tail -f /var/log/mysql_slow.log
-```
-
-debug    
-```bash
-# set log permission file permission for mysql user
-$ sudo mkdir /var/log/mysql
-$ sudo chown mysql:mysql /var/log/mysql
-
-$ groups mysql # check added permission group of mysql group
-$ sudo usermod -aG syslog mysql # add mysql to syslog group
-$ sudo systemctl restart mysql # it required to
-
-$ sudo systemctl status apparmor
-# verify AppArmor profiles:
-$ sudo aa-status
-# if MySQL is restricted, update the AppArmor profile:
-$ sudo nano /etc/apparmor.d/usr.sbin.mysqld
-/var/log/mysql_slow.log rw, # add this line
-$ sudo systemctl reload apparmor
-
-# if you want to log as mysql user
-$ sudo usermod -s /bin/bash mysql
-$ sudo su - mysql  
-$ exit # for exit from mysql user to previous user   
-```
-
-## Monitoring & Logging 
-
-## High Availability & Scaling  
-Replication allows a copy of data from the master database to be automatically replicated to one or more slave databases. This improves availability, disaster recovery, and read performance.
-
-We will configure the Master VPS and Slave VPS for replication.  
-* Master VPS: master_ip  
-* Slave VPS: slave_ip  
-* MySQL Version: Both VPS servers must have the same version installed.
-
-### 1. Master VPS Configuration  
-configuration to enable binary logging and set a unique server ID  
-> /etc/mysql/mysql.conf.d/mysqld.cnf
-```bash
-# add/modify the following lines under [mysqld] 
-log_bin = /var/log/mysql/mysql-bin.log  # Enable binary logging
-server-id = 1                           # Unique server ID for the Master
-```
-save and restart mysql server  
-```bash
-$ sudo systemctl restart mysql   
-```
-create a replication user   
-```bash
-# login as root user
-$ mysql -u root -p
-
-# this user for slave to connect master. there for we need to create this user on master mysql (vps)    
-mysql> CREATE USER 'replica_user'@'slave_ip' IDENTIFIED BY 'replica_password';
-# add replication slave privileges to above user  
-mysql> GRANT REPLICATION SLAVE ON *.* TO 'replica_user'@'slave_ip'; 
-mysql> FLUSH PRIVILEGES;
-```
-retrieve the current binary log file and position.   
-```bash
-mysql> SHOW MASTER STATUS; # you need to notedown 'File' and 'Position' to enter on slave vps  
-# result :
-+------------------+----------+
-| File             | Position |
-+------------------+----------+
-| mysql-bin.000001 | 154      |
-+------------------+----------+
-```
-
-### 1. Slave VPS Configuration  
-
-> sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
-```bash
-server-id = 2                                  # Unique server ID for the Slave
-relay-log = /var/log/mysql/mysql-relay-bin.log # Relay log file path
-# # Relay log file path will store logs received from the Master
-```
-save and restart MYSQL server   
-```bash
-$ sudo systemctl restart mysql
-```
-connect from Slave to Master   
-```bash
-mysql> CHANGE MASTER TO MASTER_HOST='master_ip', MASTER_USER='replica_user', MASTER_PASSWORD='replica_password', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=157;
-# master_ip: IP address of the Master VPS.
-# replica_user: Replication user created on the Master (created on master vps for salve loggin).
-# replica_password: Password for the replication user(created on master vps for salve loggin).
-# MASTER_LOG_FILE and MASTER_LOG_POS: Use the values from "mysql> SHOW MASTER STATUS" on the Master.
-```
-
-start slave and check status of connection slave-master 
-```bash
-# start slave   
-mysql> START SLAVE;
-
-# verify connection
-mysql> SHOW SLAVE STATUS\G;
-# result should be
-# Slave_IO_Running: Yes
-# Slave_SQL_Running: Yes
-```
-
-if you want to reset Master data in Slave VPS( "CHANGE MASTER TO ... etc" command )
-```bash
-mysql> STOP SLAVE; # first need to stop slave 
-# reset the Slave's replication settings to clear the previously entered CHANGE MASTER TO data.
-mysql> RESET SLAVE ALL;
-# re-enter master-slave connection query
-mysql> CHANGE MASTER TO MASTER_HOST='master_ip', MASTER_USER='replica_user', MASTER_PASSWORD='replica_password', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=157;
-mysql> START SLAVE;
-```
-### Verify the Replication   
-create a test database and table on Master vps :   
-```bash
-CREATE DATABASE test_db;
-USE test_db;
-CREATE TABLE test_table (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50));
-INSERT INTO test_table (name) VALUES ('Replication Test');
-```
-check on Slave vps : 
-```bash
-SHOW DATABASES;
-USE test_db;
-SELECT * FROM test_table;
-```
-
-depend on your senerio you can add firewall configuraiton (optional)   
-```bash
-# On Master VPS
-$ sudo ufw allow from slave_ip to any port 3306  
-# On Slave VPS
-$ sudo ufw allow from master_ip to any port 3306  
-```
-This replication works when slave gone offline and master update while slave offline will sync after slave came online.  
-
-## Scaling and Load Balancing with ProxySQL    
-
-Why Use ProxySQL?  
-1. Load Balancing: Distributes read-heavy workloads across multiple replicas (Slaves).  
-2. Write Routing: Ensures that write operations go to the Master database.  
-3. Failover Handling: Redirects traffic to healthy replicas automatically in case of failure.  
-4. Improved Scalability: Allows applications to scale by offloading reads from the Master to the Slaves.
-
-The 3 layers of configuration consist of   
-1. Runtime
-2. Memory
-3. Dish & Configuration File
-
-so need to run following command for Admin changes   
-```bash
-mysql(ProxySQL) > LOAD ADMIN VARIABLES TO RUNTIME;
-mysql(ProxySQL) > SAVE ADMIN VARIABLES TO DISK; 
-```
-so need to run following command for non-Admin changes       
-```bash
-mysql(ProxySQL) > LOAD MYSQL SERVERS TO RUNTIME;
-mysql(ProxySQL) > SAVE MYSQL SERVERS TO DISK; 
-```
-
-
-install ProxySQL   
-```bash
-$ sudo apt update   
-$ sudo apt install proxysql  # need to install on seperate vps or where you application run on.
-
-# ! if this didn't work
-# download deb package from website (https://proxysql.com/documentation/installing-proxysql/) according to your system architecture (ARM64/AMD64)
-# Use the dpkg command to install the .deb file
-$ sudo dpkg -i proxysql_2.7.2-ubuntu24_amd64.deb
-
-# Resolve Dependencies (if needed)
-$ sudo apt-get install -f
-
-$ sudo systemctl status proxysql
-$ sudo systemctl start proxysql
-# to ensure ProxySQL starts automatically on system boot, enable it  
-$ sudo systemctl enable proxysql
-
-# you can access the ProxySQL admin interface using the MySQL client
-# $ mysql -u admin -padmin -h 127.0.0.1 -P 6032 --prompt='ProxySQL> '
-# Default password: admin
-# Admin port : 6032  
-$ mysql -u admin -p -h 127.0.0.1 -P 6032  
-
-# after login ProxySQL create proxy_user for login to ProxySQL instead to admin.
-# this user we use to connect with backend-application (instaed of default mysql we login to ProxySQL server)
-mysql(ProxySQL)> INSERT INTO mysql_users(username, password, default_hostgroup, active) VALUES ('proxy_user', 'proxy_password', 1, 1); -- App connects to ProxySQL
-mysql(ProxySQL)> LOAD MYSQL SERVERS TO RUNTIME;
-mysql(ProxySQL)> SAVE MYSQL SERVERS TO DISK;
-
-# exit ProxySQL and login to each mysql servers to create user with following privileges. (eg: master and slave)
-# !important ## ProxySQL and MySQL should have same user with same password   
-mysql> CREATE USER 'proxy_user'@'%' IDENTIFIED BY 'proxy_password';   
-mysql> GRANT ALL PRIVILEGES ON *.* TO 'proxy_user'@'%';  # you can limit privilege access for user. 
-mysql> FLUSH PRIVILEGES;
-
-# inside the ProxySQL admin interface, define Master and Slave or MySQL instances:
-mysql(ProxySQL)> INSERT INTO mysql_servers(hostgroup_id, hostname, port, weight) VALUES
-(1, 'master_ip', 3306, 1),  -- Hostgroup 1 for Master
-(2, 'slave_ip', 3306, 1);   -- Hostgroup 2 for Slave
-mysql(ProxySQL)> LOAD MYSQL SERVERS TO RUNTIME;
-mysql(ProxySQL)> SAVE MYSQL SERVERS TO DISK;
-
-# set rules to route write queries to Master and read queries to Slave:
-# Set up query rules to direct write queries to the master (hostgroup_id = 1) and read queries to the slave (hostgroup_id = 2).
-mysql(ProxySQL)> INSERT INTO mysql_query_rules (rule_id, active, match_digest, destination_hostgroup, apply) VALUES 
-(1, 1, '^SELECT', 2, 1),  -- Route SELECT queries to slave (read)
-(2, 1, '^INSERT', 1, 1),  -- Route INSERT queries to master (write)
-(3, 1, '^UPDATE', 1, 1),  -- Route UPDATE queries to master (write)
-(4, 1, '^DELETE', 1, 1);  -- Route DELETE queries to master (write)
-# check rules added from above commands  
-mysql(ProxySQL)> select rule_id, match_digest, destination_hostgroup from mysql_query_rules;
-
-# monitor and verify
-$ SELECT * FROM stats_mysql_connection_pool;
-
-# login to ProxySQL user
-# importan for normal user port should be "6033"
-$ mysql -u proxy -p -h 127.0.0.1 -P 6033
-
-# make query for test with database name
-mysql(ProxySQL)> SELECT * FROM replica_db.test_table;
-# you can test proxy sql count under it's methods using following cmd   
-mysql(ProxySQL)> SELECT * FROM stats_mysql_commands_counters;
-
-# confirm by log on Master and Slave 
-mysql(Master/Slave) > show variables like '%general_log%'; 
-mysql(Master/Slave) > SET GLOBAL general_log = 'ON'; # do this first
-$ sudo touch /var/lib/mysql/devmius.log # do this second   
-$ tail -f /path/to/master_general_log.log # /var/lib/mysql/devmius.log
-```
-
-monitoring.   
-```bash
-# create commaon user in Master and Slave for monitor each mysql instance helth.   
-mysql(Master/Slave) > CREATE USER 'monitor'@'%' IDENTIFIED BY 'monitor_password';
-mysql(Master/Slave) > GRANT USAGE, REPLICATION CLIENT ON *.* TO 'monitor'@'%';
-mysql(Master/Slave) > FLUSH PRIVILEGES;
-
-mysql(ProxySQL)> mysql -u admin -p -h 127.0.0.1 -P 6032
-mysql(ProxySQL)> show variables like '%mysql-monitor_%';
-mysql(ProxySQL)> UPDATE global_variables SET variable_value='monitor' WHERE variable_name='mysql-monitor_username'; # add username
-mysql(ProxySQL)> UPDATE global_variables SET variable_value='monitor_password' WHERE variable_name='mysql-monitor_password'; # add password for username
-mysql(ProxySQL)> LOAD MYSQL VARIABLES TO RUNTIME;
-mysql(ProxySQL)> SAVE MYSQL VARIABLES TO DISK;
-
-# using following 2 queries on proxySQL (admin) we can see status of each periodical test conection of replications
-mysql(ProxySQL)> SELECT * FROM monitor.mysql_server_connect_log ORDER BY time_start_us DESC LIMIT 10;
-mysql(ProxySQL)> SELECT * FROM monitor.mysql_server_ping_log ORDER BY time_start_us DESC LIMIT 10; 
-```
-
-debug   
-```bash
-# Verify servers:
-mysql(ProxySQL)> SELECT * FROM mysql_servers;
-# Verify query rules:
-mysql(ProxySQL)> SELECT * FROM mysql_query_rules;
-# Verify users:
-mysql(ProxySQL)> SELECT * FROM mysql_users;
-
-# delete specific servers 
-mysql(ProxySQL)> DELETE FROM mysql_servers WHERE hostname = 'master_ip' AND port = 3306;
-# delete specific user 
-mysql(ProxySQL)> DELETE FROM mysql_users WHERE username = 'proxy_user' AND default_hostgroup = 1; -- Remove for Master
-```
-
-## Enable Automated Backups   
-Automated backups are essential to protect data from unexpected failures like hardware crashes, software issues, or accidental deletions.  
-
-command to create a full backup:   
-```bash
-$ mysqldump -u root -p --all-databases > backup.sql # add database
-$ mysqldump -u root -p --databases my_database > my_database_backup.sql # only one database  
-# -u root: Specifies the MySQL username.
-# -p: Prompts for the password.
-# --all-databases: Backs up all the databases in the server.
-# > backup.sql: Redirects the output to a file named backup.sql.
-```
-
-schedule backups using cron    
-```bash
-# to check "cron" installed or not
-$ crontab -l
-# to create cronjob for current user that logged into system.       
-@ crontab -e
-# to create cronjob for system.
-vi /etc/crontab
-# format of cronjob as root need to add user  
-# * * * * * yourusername echo "Cron job ran at $(date)" >> /home/yourusername/cron_test.log
-# without cron you can test it on terminal   
-$ /usr/bin/mysqldump -u root -pa#fgr@8Dev replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql 
-# generate mysqldump for every minuts   
-* * * * *  samadhi /usr/bin/mysqldump -u root -p'a#fgr@8Dev'  replica_db > /home/samadhi/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql
-# minuts | hour | day | month | day-of-week 
-# 30 3 * * * command_to_run : daily at 3:30 AM
-# 0 17 * * 1 command_to_run : weekly monday 5:00 PM
-# 0 * * * * command_to_run  : run every hour
-# */10 * * * * command_to_run : run every 10 minutes
-# 45 23 * * 0 command_to_run : run every sunday at 11:45 PM
-# 15 8 * * 1-5 command_to_run : run on weekdays (Monday to Friday) at 8:15 AM
-```
-
-use MySQL binary logs for point-in-time recovery   
-usally backup happen on mighnight and if we need to restore data backup time to crash time then we need to use "Binary Logs"   
-
-activate binary log (already done above)
-```bash
-$ sudo vi /etc/mysql/mysql.conf.d/mysqld.cnf
-[mysqld]
-log_bin = /var/log/mysql/mysql-bin.log
-binlog_expire_logs_seconds = 2592000 #  equal 0 mean logs do not expire automatically and by default 2592000 = 30 days
-
-$ sudo systemctl restart mysql # restart mysql server
-```
-
-how to backup with binary logs 
-```bash
-# take full backup at midnight
-$ mysqldump -u root -p --databases my_database > my_database_backup.sql
-# restore the midnight backup:
-$ mysql -u root -p < my_database_backup.sql
-# Replay the binary logs to recover changes up to 9:59 AM:
-$ mysqlbinlog --start-datetime="2025-02-15 00:00:00" --stop-datetime="2025-02-15 09:59:00" /var/log/mysql/mysql-bin.log | mysql -u root -p  
-```
-
-let see how to hide mysql credentials in the cronjob     
-method 001: Script with Restricted Permissions     
-```bash
-$ vi ~/.my.cnf
-# add following lines to file   
 [client]
-user = root
-password = 'a#fgr' # password good to inside quotations 
-# add permissions to above file
-$ chmod 600 ~/.my.cnf
-# try without cron
-$ /usr/bin/mysqldump --defaults-extra-file=~/.my.cnf  replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql  
+user=root
+password=password
+host=mysql                        # Connect using the MySQL container name
 ```
 
-method 002: Use Environment Variables    
+By default, Docker directly manipulates iptables rules to allow traffic to containers. This behavior can bypass UFW, meaning Docker's port mappings (e.g., 3306 mapped to the MySQL container) are open to external connections even if UFW doesn't explicitly allow the port.  
+
+ inspect the iptables rules directly to see if Docker has added rules for port 3306   
+ ```bash
+$ sudo iptables -L -n  
+```
+configure to prevent Docker from bypassing UFW.  
+> /etc/docker/daemon.json
 ```bash
-# open following line   
-vi  ~/.bashrc
-# insert following env variable
-export MYSQL_PWD='a#fgr'
-# activate env variable
-$ source ~/.bashrc
-# test command without cron   
-$ /usr/bin/mysqldump -u root -p$MYSQL_PWD replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql 
+{
+  "iptables": false
+}
 ```
-method 003: Script with Restricted Permissions  
+restart docker  
 ```bash
-# create file for script
-vi ~/scripts/backup_db.sh
-
-# write the script for crone
-#!/bin/bash
-/usr/bin/mysqldump -u root -p'a#fgr' replica_db > ~/backups/db_backup_$(date +\%F_\%H-\%M-\%S).sql 
-
-# set permissions to ensure only the owner can read and execute the script
-$ chmod 700 ~/scripts/backup_db.sh
-
-# run script on cron add following line to crontab file  
-*/2 * * * * ~/scripts/backup_db.sh
+$ sudo systemctl restart docker
 ```
 
-debug   
-```bash
-# check status of crontab    
-$ sudo systemctl status cron
+go to localhost:3000 for Grafana > (click) "Connections" on left menu > (click) "Data sources" on left menu > (click) "Add data source" button >  (click) "Prometheus" on list > (input) in "Prometheus server URL" value that you open on browser > (click) "save & test" button of bottom of page > (click) "Dashboards" on left menu > (click) "+ Create dashboard" > (click) "+ Add visualization" button > (select) the data source as "prometheus" 
 
-# check logs
-$ sudo tail -f /var/log/syslog | grep CRON
-
-# activate cron log
-$ sudo vi  /etc/rsyslog.d/50-default.conf
-# uncomment following line
-cron.*    /var/log/cron.log
-# restart rsyslog service 
-$ sudo systemctl restart rsyslog
-# check logs
-$ sudo tail -f /var/log/cron.log  
-```
 
 
 
