@@ -4,10 +4,10 @@ for scalable system need monitoring for any anomalies or any issues in productio
 
 for this you need to install "docker" and "docker-compose" into your vps   
 
-MySQL           : port 3306:3306  > config : .my.cnf
-MySQL Exporter  : port 9104:9104
-Prometheus      : port 9090:9090  > config : prometheus.yml
-Grafana         : port 3000:3000  
+MySQL           : port 3306:3306  > config : .my.cnf    
+MySQL Exporter  : port 9104:9104    
+Prometheus      : port 9090:9090  > config : prometheus.yml    
+Grafana         : port 3000:3000      
 
 
 docker for linux(Ubuntu)   
