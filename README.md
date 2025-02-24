@@ -109,6 +109,40 @@ $ sudo systemctl restart docker
 
 go to localhost:3000 for Grafana > (click) "Connections" on left menu > (click) "Data sources" on left menu > (click) "Add data source" button >  (click) "Prometheus" on list > (input) in "Prometheus server URL" value that you open on browser > (click) "save & test" button of bottom of page > (click) "Dashboards" on left menu > (click) "+ Create dashboard" > (click) "+ Add visualization" button > (select) the data source as "prometheus" 
 
+debug   
+```bash
+# check ip address of docker container
+$ docker inspect <container_name_or_id> | grep IPAddress   
 
+# create user for exporter
+mysql> CREATE USER 'exporter'@'%' IDENTIFIED BY 'password' WITH MAX_USER_CONNECTIONS 3;
+mysql> GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+mysql> FLUSH PRIVILEGES;
+
+# check users and host of mysql
+mysql> SELECT user, host FROM mysql.user;
+
+# check port and bind address of mysql container   
+$ sudo docker exec -it  mysql bash
+sudo docker exec -it  mysql bash
+mysql> SHOW VARIABLES LIKE 'port';
+mysql> SHOW VARIABLES LIKE 'bind_address';
+
+# check if a specific port on a remote host is open and reachable
+$ nc -zv   172.18.0.2  3306
+
+# check ip address of docker using netword
+$ sudo docker inspect  prometheus_my_network
+
+# check mysql port
+$ sudo tcpdump -i any port 3306 -A -nn
+
+# connect to mysql
+$ mysql -h <your_host> -P 3306 -u root -p
+
+# check bind address of mysql docker container
+$ mysql -h 172.18.0.2 -P 3306 -u root -ppassword -e "SHOW VARIABLES LIKE 'bind_address';"  
+
+```
 
 
