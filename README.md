@@ -14,58 +14,77 @@ docker for linux(Ubuntu)
 
 > /docker-compose.yml  
 ```yml
-version: '3'
-services:
+version: '3.8'
 
+networks:
+  my_network:
+    driver: bridge
+
+services:
   mysql:
-    image: mysql
+    image: mysql:5.7
     container_name: mysql
     restart: always
     environment:
-      MYSQL_DATABASE: 'test'              # Name of the database
-      MYSQL_USER: 'sample'                # Username
-      MYSQL_PASSWORD: 'password'          # Password for 'sample' user
-      MYSQL_ROOT_PASSWORD: 'password'     # Password for root user
+      MYSQL_DATABASE: 'test'
+      MYSQL_USER: 'sample'
+      MYSQL_PASSWORD: 'password'
+      MYSQL_ROOT_PASSWORD: 'password'
     ports:
-      - '3307:3306'                       # Map Docker MySQL port 3306 to host port 3307
+      - '3307:3306'
+      #command: --bind-address=0.0.0.0 #--port=3306
     volumes:
-      - ./mysql-db:/var/lib/mysql         # Persist MySQL data
+      - ./mysql-db:/var/lib/mysql
+      #- ./mysql-config/my.cnf:/etc/my.cnf 
+    networks:
+      - my_network
 
   prometheus:
     image: prom/prometheus
     container_name: prometheus
     volumes:
-      - "./prometheus.yml:/etc/prometheus/prometheus.yml"  # Mount prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
-      - 9090:9090                         # Expose Prometheus on port 9090
+      - 9090:9090
+    networks:
+      - my_network
 
   grafana:
     image: grafana/grafana
     container_name: grafana
     ports:
-      - 3000:3000                         # Expose Grafana on port 3000
+      - 3000:3000
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
-      - ./grafana:/etc/grafana/provisioning/datasources # Persist Grafana configurations
+      - ./grafana:/etc/grafana/provisioning/datasources
+    networks:
+      - my_network
 
   mysql-exporter:
-    image: prom/mysqld-exporter
+    image: quay.io/prometheus/mysqld-exporter
     container_name: mysql-exporter
+    restart: unless-stopped
     depends_on:
       - mysql
-    command: 
+      #environment:
+      #DATA_SOURCE_NAME: "exporter:password@(mysql:3306)/"
+    command:
+      - "--mysqld.username=exporter:password"
+      - "--mysqld.address=mysql:3306"
       - --config.my-cnf=/cfg/.my.cnf
-      - --mysqld.address=mysql:3306       # Connect to MySQL using its container name
+      # - --mysqld.address=mysql:3306  # Connect to MySQL using the service name
     volumes:
-      - "./.my.cnf:/cfg/.my.cnf"          # Mount .my.cnf for credentials
+      - "./.my.cnf:/cfg/.my.cnf"
     ports:
-      - 9104:9104                         # Expose MySQL exporter on port 9104
+      - 9104:9104
+    networks:
+      - my_network
 
 ```
-> /prometheus.yml
+> prometheus.yml  
 ```bash
 global:
   scrape_interval: 2s
@@ -75,18 +94,26 @@ scrape_configs:
    static_configs:
     - targets:
        - prometheus:9090                 # Prometheus container name as the target
-       
+
  - job_name: mysql_exporter
    static_configs:
     - targets:
-       - mysql-exporter:9104            # MySQL exporter container name as the target
+      #- mysql-exporter:9104            # MySQL exporter container name as the target
+       - 188.166.227.124:9104
+
 ```
 > /.my.cnf
 ```bash
 [client]
-user=root
+user=exporter
 password=password
-host=mysql                        # Connect using the MySQL container name
+host=mysql
+port=3306
+[client.servers]
+user=exporter
+password=password
+host=mysql
+port=3306
 ```
 
 By default, Docker directly manipulates iptables rules to allow traffic to containers. This behavior can bypass UFW, meaning Docker's port mappings (e.g., 3306 mapped to the MySQL container) are open to external connections even if UFW doesn't explicitly allow the port.  
